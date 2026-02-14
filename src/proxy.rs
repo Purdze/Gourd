@@ -1,6 +1,6 @@
 use pumpkin_data::packet::CURRENT_MC_PROTOCOL;
-use pumpkin_protocol::codec::var_int::VarInt;
 use pumpkin_data::packet::clientbound::CONFIG_DISCONNECT;
+use pumpkin_protocol::codec::var_int::VarInt;
 use pumpkin_protocol::java::server::handshake::SHandShake;
 use pumpkin_protocol::java::server::login::SLoginStart;
 use pumpkin_protocol::ser::NetworkWriteExt;
@@ -132,7 +132,12 @@ impl ProxyServer {
     }
 
     pub fn is_server_healthy(&self, name: &str) -> bool {
-        self.server_health.read().unwrap().get(name).copied().unwrap_or(true)
+        self.server_health
+            .read()
+            .unwrap()
+            .get(name)
+            .copied()
+            .unwrap_or(true)
     }
 
     pub fn register_session(&self, name: &str) -> mpsc::Receiver<String> {
@@ -198,26 +203,32 @@ impl ProxyServer {
                     .map_err(|_| ProxyError::Other("Status request timed out".to_string()))??;
             }
             ConnectionState::Login => {
-                if !self.login_rate_limiter.check(addr.ip(), config.login_rate_limit) {
+                if !self
+                    .login_rate_limiter
+                    .check(addr.ip(), config.login_rate_limit)
+                {
                     log::warn!("Login rate limit exceeded for {}", addr.ip());
                     return Ok(());
                 }
 
-                let (profile, client, backend, server_name) = tokio::time::timeout(
-                    timeout_dur,
-                    self.perform_login(stream, addr),
-                )
-                .await
-                .map_err(|_| {
-                    log::warn!("Login from {} timed out", addr);
-                    ProxyError::Other("Login timed out".to_string())
-                })??;
+                let (profile, client, backend, server_name) =
+                    tokio::time::timeout(timeout_dur, self.perform_login(stream, addr))
+                        .await
+                        .map_err(|_| {
+                            log::warn!("Login from {} timed out", addr);
+                            ProxyError::Other("Login timed out".to_string())
+                        })??;
 
                 self.increment_players();
                 let shutdown_rx = self.shutdown_receiver();
                 let transfer_rx = self.register_session(&profile.name);
-                let session =
-                    Arc::new(PlayerSession::new(client, profile, self.clone(), shutdown_rx, transfer_rx));
+                let session = Arc::new(PlayerSession::new(
+                    client,
+                    profile,
+                    self.clone(),
+                    shutdown_rx,
+                    transfer_rx,
+                ));
                 session.run(backend, server_name).await;
                 self.decrement_players();
             }
@@ -280,7 +291,15 @@ impl ProxyServer {
         &self,
         mut stream: TcpStream,
         addr: SocketAddr,
-    ) -> Result<(GameProfile, Arc<ClientConnection>, BackendConnection, String), ProxyError> {
+    ) -> Result<
+        (
+            GameProfile,
+            Arc<ClientConnection>,
+            BackendConnection,
+            String,
+        ),
+        ProxyError,
+    > {
         let config = self.config();
 
         let ls_len = validated_packet_length(raw_read_varint(&mut stream).await?)?;
@@ -293,16 +312,29 @@ impl ProxyServer {
         let login_name = login_start.name.clone();
         validate_username(&login_name)?;
 
-        if config.blacklist.iter().any(|b| b.eq_ignore_ascii_case(&login_name)) {
+        if config
+            .blacklist
+            .iter()
+            .any(|b| b.eq_ignore_ascii_case(&login_name))
+        {
             send_login_disconnect(&mut stream, "You are banned from this server").await?;
-            return Err(ProxyError::Other(format!("Player '{}' is blacklisted", login_name)));
+            return Err(ProxyError::Other(format!(
+                "Player '{}' is blacklisted",
+                login_name
+            )));
         }
 
         if config.whitelist_enabled
-            && !config.whitelist.iter().any(|w| w.eq_ignore_ascii_case(&login_name))
+            && !config
+                .whitelist
+                .iter()
+                .any(|w| w.eq_ignore_ascii_case(&login_name))
         {
             send_login_disconnect(&mut stream, "You are not whitelisted on this server").await?;
-            return Err(ProxyError::Other(format!("Player '{}' is not whitelisted", login_name)));
+            return Err(ProxyError::Other(format!(
+                "Player '{}' is not whitelisted",
+                login_name
+            )));
         }
 
         log::info!("Login from {} ({})", login_name, addr);
@@ -313,7 +345,10 @@ impl ProxyServer {
             self.handle_offline_login(stream, addr, &login_name).await?
         };
 
-        log::debug!("[{}] Login complete, connecting to backend...", profile.name);
+        log::debug!(
+            "[{}] Login complete, connecting to backend...",
+            profile.name
+        );
 
         // Try default server first, then fall back to others
         let mut server_order = vec![config.default_server.clone()];
@@ -332,7 +367,12 @@ impl ProxyServer {
             let backend_addr: SocketAddr = match server.address.parse() {
                 Ok(a) => a,
                 Err(e) => {
-                    log::warn!("[{}] Invalid address for '{}': {}", profile.name, server_name, e);
+                    log::warn!(
+                        "[{}] Invalid address for '{}': {}",
+                        profile.name,
+                        server_name,
+                        e
+                    );
                     continue;
                 }
             };
@@ -350,18 +390,27 @@ impl ProxyServer {
                     if *server_name != config.default_server {
                         log::info!(
                             "[{}] Default server '{}' unavailable, connected to '{}'",
-                            profile.name, config.default_server, server_name
+                            profile.name,
+                            config.default_server,
+                            server_name
                         );
                     } else {
                         log::info!(
                             "[{}] Connected to backend '{}' ({})",
-                            profile.name, server_name, backend_addr
+                            profile.name,
+                            server_name,
+                            backend_addr
                         );
                     }
                     return Ok((profile, client, backend, server_name.clone()));
                 }
                 Err(e) => {
-                    log::warn!("[{}] Failed to connect to '{}': {}", profile.name, server_name, e);
+                    log::warn!(
+                        "[{}] Failed to connect to '{}': {}",
+                        profile.name,
+                        server_name,
+                        e
+                    );
                     last_err = Some(e);
                 }
             }
@@ -443,11 +492,7 @@ impl ProxyServer {
         .map_err(|_| ProxyError::Other("Mojang authentication timed out".to_string()))?
         .map_err(|e| ProxyError::Other(format!("Auth task failed: {}", e)))??;
 
-        log::info!(
-            "[{}] Authenticated (UUID: {})",
-            profile.name,
-            profile.id
-        );
+        log::info!("[{}] Authenticated (UUID: {})", profile.name, profile.id);
 
         let config = self.config();
         let threshold = config.compression_threshold;
@@ -474,10 +519,7 @@ impl ProxyServer {
             .map_err(ProxyError::Encode)?;
         log::debug!("[{}] LoginSuccess sent", profile.name);
 
-        let ack = client
-            .read_raw_packet()
-            .await
-            .map_err(ProxyError::Decode)?;
+        let ack = client.read_raw_packet().await.map_err(ProxyError::Decode)?;
         log::debug!(
             "[{}] Login acknowledged (packet id=0x{:02X})",
             profile.name,
@@ -555,7 +597,6 @@ impl ProxyServer {
     }
 }
 
-
 fn build_login_success_payload(profile: &GameProfile) -> Vec<u8> {
     let mut buf = Vec::new();
     buf.write_var_int(&VarInt(0x02)).unwrap(); // LoginSuccess
@@ -572,7 +613,6 @@ fn build_login_success_payload(profile: &GameProfile) -> Vec<u8> {
     buf
 }
 
-
 /// Validate a Minecraft username (3-16 chars, alphanumeric + underscore).
 fn validate_username(name: &str) -> Result<(), ProxyError> {
     if name.len() < 3 || name.len() > 16 {
@@ -581,13 +621,8 @@ fn validate_username(name: &str) -> Result<(), ProxyError> {
             name.len()
         )));
     }
-    if !name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_')
-    {
-        return Err(ProxyError::Other(
-            "Invalid username characters".to_string(),
-        ));
+    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(ProxyError::Other("Invalid username characters".to_string()));
     }
     Ok(())
 }
@@ -726,72 +761,106 @@ fn parse_motd(motd: &str) -> serde_json::Value {
     let mut underlined = false;
     let mut strikethrough = false;
 
-    let flush_part = |text: &mut String, color: Option<&str>, bold, italic, underlined, strikethrough, parts: &mut Vec<serde_json::Value>| {
-        if text.is_empty() { return; }
+    let flush_part = |text: &mut String,
+                      color: Option<&str>,
+                      bold,
+                      italic,
+                      underlined,
+                      strikethrough,
+                      parts: &mut Vec<serde_json::Value>| {
+        if text.is_empty() {
+            return;
+        }
         let mut part = serde_json::json!({"text": *text});
-        if let Some(c) = color { part["color"] = c.into(); }
-        if bold { part["bold"] = true.into(); }
-        if italic { part["italic"] = true.into(); }
-        if underlined { part["underlined"] = true.into(); }
-        if strikethrough { part["strikethrough"] = true.into(); }
+        if let Some(c) = color {
+            part["color"] = c.into();
+        }
+        if bold {
+            part["bold"] = true.into();
+        }
+        if italic {
+            part["italic"] = true.into();
+        }
+        if underlined {
+            part["underlined"] = true.into();
+        }
+        if strikethrough {
+            part["strikethrough"] = true.into();
+        }
         parts.push(part);
         *text = String::new();
     };
 
     let mut chars = motd.chars().peekable();
     while let Some(ch) = chars.next() {
-        if ch == '&' {
-            if let Some(&code) = chars.peek() {
-                let mapped_color = match code {
-                    '0' => Some("black"),
-                    '1' => Some("dark_blue"),
-                    '2' => Some("dark_green"),
-                    '3' => Some("dark_aqua"),
-                    '4' => Some("dark_red"),
-                    '5' => Some("dark_purple"),
-                    '6' => Some("gold"),
-                    '7' => Some("gray"),
-                    '8' => Some("dark_gray"),
-                    '9' => Some("blue"),
-                    'a' => Some("green"),
-                    'b' => Some("aqua"),
-                    'c' => Some("red"),
-                    'd' => Some("light_purple"),
-                    'e' => Some("yellow"),
-                    'f' => Some("white"),
-                    _ => None,
-                };
-                let is_format = matches!(code, 'l' | 'm' | 'n' | 'o' | 'r');
+        if ch == '&'
+            && let Some(&code) = chars.peek()
+        {
+            let mapped_color = match code {
+                '0' => Some("black"),
+                '1' => Some("dark_blue"),
+                '2' => Some("dark_green"),
+                '3' => Some("dark_aqua"),
+                '4' => Some("dark_red"),
+                '5' => Some("dark_purple"),
+                '6' => Some("gold"),
+                '7' => Some("gray"),
+                '8' => Some("dark_gray"),
+                '9' => Some("blue"),
+                'a' => Some("green"),
+                'b' => Some("aqua"),
+                'c' => Some("red"),
+                'd' => Some("light_purple"),
+                'e' => Some("yellow"),
+                'f' => Some("white"),
+                _ => None,
+            };
+            let is_format = matches!(code, 'l' | 'm' | 'n' | 'o' | 'r');
 
-                if mapped_color.is_some() || is_format {
-                    chars.next();
-                    flush_part(&mut current_text, color, bold, italic, underlined, strikethrough, &mut parts);
+            if mapped_color.is_some() || is_format {
+                chars.next();
+                flush_part(
+                    &mut current_text,
+                    color,
+                    bold,
+                    italic,
+                    underlined,
+                    strikethrough,
+                    &mut parts,
+                );
 
-                    if code == 'r' {
-                        color = None;
-                        bold = false;
-                        italic = false;
-                        underlined = false;
-                        strikethrough = false;
-                    } else if let Some(c) = mapped_color {
-                        color = Some(c);
-                    } else {
-                        match code {
-                            'l' => bold = true,
-                            'm' => strikethrough = true,
-                            'n' => underlined = true,
-                            'o' => italic = true,
-                            _ => {}
-                        }
+                if code == 'r' {
+                    color = None;
+                    bold = false;
+                    italic = false;
+                    underlined = false;
+                    strikethrough = false;
+                } else if let Some(c) = mapped_color {
+                    color = Some(c);
+                } else {
+                    match code {
+                        'l' => bold = true,
+                        'm' => strikethrough = true,
+                        'n' => underlined = true,
+                        'o' => italic = true,
+                        _ => {}
                     }
-                    continue;
                 }
+                continue;
             }
         }
         current_text.push(ch);
     }
 
-    flush_part(&mut current_text, color, bold, italic, underlined, strikethrough, &mut parts);
+    flush_part(
+        &mut current_text,
+        color,
+        bold,
+        italic,
+        underlined,
+        strikethrough,
+        &mut parts,
+    );
     if parts.is_empty() {
         parts.push(serde_json::json!({"text": ""}));
     }

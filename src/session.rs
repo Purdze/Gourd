@@ -16,7 +16,7 @@ use pumpkin_protocol::java::server::play::{SChatCommand, SCommandSuggestion};
 use pumpkin_protocol::ser::NetworkWriteExt;
 use pumpkin_protocol::{PacketDecodeError, ServerPacket};
 use pumpkin_util::text::TextComponent;
-use tokio::sync::{mpsc, watch, Mutex};
+use tokio::sync::{Mutex, mpsc, watch};
 
 use crate::auth::GameProfile;
 use crate::backend::BackendConnection;
@@ -74,7 +74,9 @@ impl PlayerSession {
                         let fb_name = fb.to_string();
                         log::info!(
                             "[{}] Backend '{}' lost, falling back to '{}'",
-                            self.profile.name, current_server, fb_name
+                            self.profile.name,
+                            current_server,
+                            fb_name
                         );
                         let _ = self
                             .send_system_chat(&format!(
@@ -91,7 +93,9 @@ impl PlayerSession {
                             Err(e) => {
                                 log::error!(
                                     "[{}] Fallback to '{}' failed: {}",
-                                    self.profile.name, fb_name, e
+                                    self.profile.name,
+                                    fb_name,
+                                    e
                                 );
                             }
                         }
@@ -103,7 +107,8 @@ impl PlayerSession {
                     if name == current_server {
                         let _ = self
                             .send_system_chat(&format!(
-                                "\u{00a7}cYou are already on \u{00a7}e{}", name
+                                "\u{00a7}cYou are already on \u{00a7}e{}",
+                                name
                             ))
                             .await;
                         continue;
@@ -112,11 +117,7 @@ impl PlayerSession {
                         Ok(new_backend) => {
                             backend = Arc::new(new_backend);
                             current_server = name.clone();
-                            log::info!(
-                                "[{}] Now playing on '{}'",
-                                self.profile.name,
-                                name
-                            );
+                            log::info!("[{}] Now playing on '{}'", self.profile.name, name);
                         }
                         Err(e) => {
                             log::error!(
@@ -138,7 +139,11 @@ impl PlayerSession {
         log::info!("Session ended for {}", self.profile.name);
     }
 
-    async fn relay_packets(&self, backend: &BackendConnection, current_server: &str) -> RelayResult {
+    async fn relay_packets(
+        &self,
+        backend: &BackendConnection,
+        current_server: &str,
+    ) -> RelayResult {
         let mut shutdown = self.shutdown.clone();
         let idle_timeout = Duration::from_secs(self.proxy.config().idle_timeout_secs);
         let mut pkt_count: u64 = 0;
@@ -161,35 +166,35 @@ impl PlayerSession {
                         client_read = Box::pin(self.client.read_raw_packet());
                         match result {
                             Ok(raw) => {
-                                if raw.id == PLAY_CHAT_COMMAND.latest_id {
-                                    if let Ok(cmd) = SChatCommand::read(&raw.payload[..]) {
-                                        if let Some(server_name) = cmd.command.strip_prefix("server ") {
-                                            return Some(RelayResult::SwitchServer(
-                                                server_name.trim().to_string(),
-                                            ));
-                                        }
-                                        if cmd.command.trim() == "server" {
-                                            let _ = self.send_server_list().await;
-                                            return None;
-                                        }
-                                        if cmd.command.starts_with("send") {
-                                            let args = cmd.command.strip_prefix("send ").unwrap_or("");
-                                            let _ = self.handle_send_command(args).await;
-                                            return None;
-                                        }
+                                if raw.id == PLAY_CHAT_COMMAND.latest_id
+                                    && let Ok(cmd) = SChatCommand::read(&raw.payload[..])
+                                {
+                                    if let Some(server_name) = cmd.command.strip_prefix("server ") {
+                                        return Some(RelayResult::SwitchServer(
+                                            server_name.trim().to_string(),
+                                        ));
+                                    }
+                                    if cmd.command.trim() == "server" {
+                                        let _ = self.send_server_list().await;
+                                        return None;
+                                    }
+                                    if cmd.command.starts_with("send") {
+                                        let args = cmd.command.strip_prefix("send ").unwrap_or("");
+                                        let _ = self.handle_send_command(args).await;
+                                        return None;
                                     }
                                 }
 
-                                if raw.id == PLAY_COMMAND_SUGGESTION.latest_id {
-                                    if let Ok(req) = SCommandSuggestion::read(&raw.payload[..]) {
-                                        if req.command.starts_with("/server ") {
-                                            let _ = self.handle_server_tab_complete(&req).await;
-                                            return None;
-                                        }
-                                        if req.command.starts_with("/send ") {
-                                            let _ = self.handle_send_tab_complete(&req).await;
-                                            return None;
-                                        }
+                                if raw.id == PLAY_COMMAND_SUGGESTION.latest_id
+                                    && let Ok(req) = SCommandSuggestion::read(&raw.payload[..])
+                                {
+                                    if req.command.starts_with("/server ") {
+                                        let _ = self.handle_server_tab_complete(&req).await;
+                                        return None;
+                                    }
+                                    if req.command.starts_with("/send ") {
+                                        let _ = self.handle_send_tab_complete(&req).await;
+                                        return None;
                                     }
                                 }
 
@@ -342,8 +347,11 @@ impl PlayerSession {
             .get(server_name)
             .ok_or_else(|| ProxyError::Other(format!("Server '{}' not found", server_name)))?;
 
-        self.send_system_chat(&format!("\u{00a7}aSwitching to \u{00a7}e{}\u{00a7}a...", server_name))
-            .await?;
+        self.send_system_chat(&format!(
+            "\u{00a7}aSwitching to \u{00a7}e{}\u{00a7}a...",
+            server_name
+        ))
+        .await?;
 
         self.send_start_configuration().await?;
 
@@ -458,7 +466,10 @@ impl PlayerSession {
                 } else {
                     "\u{00a7}c\u{2718}"
                 };
-                format!("{} \u{00a7}a{} \u{00a7}7- \u{00a7}f{}", health, name, entry.motd)
+                format!(
+                    "{} \u{00a7}a{} \u{00a7}7- \u{00a7}f{}",
+                    health, name, entry.motd
+                )
             })
             .collect::<Vec<_>>()
             .join("\n");
@@ -466,14 +477,16 @@ impl PlayerSession {
         self.send_system_chat(&msg).await
     }
 
-    async fn handle_server_tab_complete(
-        &self,
-        req: &SCommandSuggestion,
-    ) -> Result<(), ProxyError> {
+    async fn handle_server_tab_complete(&self, req: &SCommandSuggestion) -> Result<(), ProxyError> {
         let partial = &req.command["/server ".len()..];
         let matches = self.server_name_suggestions(partial);
-        self.send_suggestions(req.id, "/server ".len() as i32, partial.len() as i32, matches)
-            .await
+        self.send_suggestions(
+            req.id,
+            "/server ".len() as i32,
+            partial.len() as i32,
+            matches,
+        )
+        .await
     }
 
     async fn handle_send_command(&self, args: &str) -> Result<(), ProxyError> {
@@ -489,7 +502,10 @@ impl PlayerSession {
         let config = self.proxy.config();
         if !config.servers.contains_key(server_name) {
             return self
-                .send_system_chat(&format!("\u{00a7}cServer '\u{00a7}e{}\u{00a7}c' not found", server_name))
+                .send_system_chat(&format!(
+                    "\u{00a7}cServer '\u{00a7}e{}\u{00a7}c' not found",
+                    server_name
+                ))
                 .await;
         }
 
@@ -501,16 +517,11 @@ impl PlayerSession {
                 ))
                 .await
             }
-            Err(e) => {
-                self.send_system_chat(&format!("\u{00a7}c{}", e)).await
-            }
+            Err(e) => self.send_system_chat(&format!("\u{00a7}c{}", e)).await,
         }
     }
 
-    async fn handle_send_tab_complete(
-        &self,
-        req: &SCommandSuggestion,
-    ) -> Result<(), ProxyError> {
+    async fn handle_send_tab_complete(&self, req: &SCommandSuggestion) -> Result<(), ProxyError> {
         let after_send = &req.command["/send ".len()..];
         let parts: Vec<&str> = after_send.splitn(2, ' ').collect();
 
@@ -527,7 +538,11 @@ impl PlayerSession {
         } else {
             let partial = parts[1];
             let offset = "/send ".len() + parts[0].len() + 1;
-            (offset as i32, partial.len() as i32, self.server_name_suggestions(partial))
+            (
+                offset as i32,
+                partial.len() as i32,
+                self.server_name_suggestions(partial),
+            )
         };
 
         self.send_suggestions(req.id, start, length, matches).await
@@ -564,7 +579,7 @@ impl PlayerSession {
 }
 
 fn parse_gourd_transfer(payload: &[u8]) -> Option<String> {
-    let mut cursor = &payload[..];
+    let mut cursor = payload;
     let len = match pumpkin_protocol::codec::var_int::VarInt::decode(&mut cursor) {
         Ok(v) => v.0 as usize,
         Err(e) => {
@@ -575,7 +590,8 @@ fn parse_gourd_transfer(payload: &[u8]) -> Option<String> {
     if cursor.len() < len {
         log::warn!(
             "gourd:transfer parse: channel length {} exceeds remaining payload {}",
-            len, cursor.len()
+            len,
+            cursor.len()
         );
         return None;
     }

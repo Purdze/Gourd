@@ -1,6 +1,6 @@
 # Gourd
 
-A lightweight Minecraft Java Edition proxy built on the [Pumpkin](https://github.com/Pumpkin-MC/Pumpkin) protocol library.
+A lightweight Minecraft proxy built on the [Pumpkin](https://github.com/Pumpkin-MC/Pumpkin) protocol library.
 
 Gourd sits between Minecraft clients and Pumpkin backend servers, handling authentication, encryption, and packet forwarding. Players can switch between backend servers without disconnecting.
 

@@ -159,13 +159,11 @@ impl BackendConnection {
                             "Received velocity:player_info request, sending forwarding response"
                         );
                         response_buf.write_bool(true).unwrap();
-                        response_buf.extend_from_slice(
-                            &forwarding::build_velocity_response(
-                                gourd_secret,
-                                client_addr,
-                                profile,
-                            ),
-                        );
+                        response_buf.extend_from_slice(&forwarding::build_velocity_response(
+                            gourd_secret,
+                            client_addr,
+                            profile,
+                        ));
                     } else {
                         log::debug!(
                             "Unknown plugin channel: {}, responding unsuccessful",
@@ -242,10 +240,7 @@ impl BackendConnection {
                 if first.id == 0 {
                     // Re-interpret the misread uncompressed packet
                     let mut cursor = &first.payload[..];
-                    let actual_id = cursor
-                        .get_var_int()
-                        .map_err(BackendError::Reading)?
-                        .0;
+                    let actual_id = cursor.get_var_int().map_err(BackendError::Reading)?.0;
                     let actual_payload = Bytes::copy_from_slice(cursor);
                     let corrected = RawPacket {
                         id: actual_id,

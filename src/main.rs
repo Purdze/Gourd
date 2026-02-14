@@ -78,8 +78,7 @@ async fn main() {
 
     let bind_addr = config.bind.clone();
 
-    let rsa_key =
-        RsaPrivateKey::new(&mut OsRng, 2048).expect("Failed to generate RSA keypair");
+    let rsa_key = RsaPrivateKey::new(&mut OsRng, 2048).expect("Failed to generate RSA keypair");
     let public_key = rsa_key.to_public_key();
     let der_public_key = public_key
         .to_public_key_der()
@@ -119,7 +118,7 @@ async fn main() {
                         let ip = addr.ip();
                         let config = proxy.config();
                         let ip_str = ip.to_string();
-                        if config.banned_ips.iter().any(|b| *b == ip_str) {
+                        if config.banned_ips.contains(&ip_str) {
                             log::warn!("Banned IP {} rejected", ip);
                             drop(stream);
                             continue;
@@ -155,12 +154,13 @@ async fn main() {
     let active = tasks.len();
     if active > 0 {
         log::info!("Waiting for {} active connection(s) to close...", active);
-        let drain = async {
-            while tasks.join_next().await.is_some() {}
-        };
+        let drain = async { while tasks.join_next().await.is_some() {} };
         match tokio::time::timeout(Duration::from_secs(10), drain).await {
             Ok(()) => log::info!("All connections drained"),
-            Err(_) => log::warn!("Drain timeout, {} connection(s) forcefully closed", tasks.len()),
+            Err(_) => log::warn!(
+                "Drain timeout, {} connection(s) forcefully closed",
+                tasks.len()
+            ),
         }
     }
 
@@ -169,14 +169,10 @@ async fn main() {
 
 fn spawn_config_watcher(path: PathBuf, proxy: Arc<ProxyServer>) {
     tokio::spawn(async move {
-        let mut last_mtime = std::fs::metadata(&path)
-            .and_then(|m| m.modified())
-            .ok();
+        let mut last_mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
         loop {
             tokio::time::sleep(Duration::from_secs(30)).await;
-            let current_mtime = std::fs::metadata(&path)
-                .and_then(|m| m.modified())
-                .ok();
+            let current_mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
             if current_mtime != last_mtime {
                 last_mtime = current_mtime;
                 match GourdConfig::try_load(&path) {

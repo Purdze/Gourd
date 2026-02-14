@@ -76,10 +76,7 @@ impl PacketCodec {
     }
 
     pub async fn set_compression(&self, threshold: CompressionThreshold, level: CompressionLevel) {
-        self.network_reader
-            .lock()
-            .await
-            .set_compression(threshold);
+        self.network_reader.lock().await.set_compression(threshold);
         self.network_writer
             .lock()
             .await
@@ -90,10 +87,7 @@ impl PacketCodec {
     /// Used when the remote end has compression enabled but didn't
     /// negotiate it (e.g., Pumpkin's Velocity proxy path).
     pub async fn set_read_compression(&self, threshold: CompressionThreshold) {
-        self.network_reader
-            .lock()
-            .await
-            .set_compression(threshold);
+        self.network_reader.lock().await.set_compression(threshold);
     }
 
     pub async fn set_encryption(&self, key: &[u8; 16]) {
